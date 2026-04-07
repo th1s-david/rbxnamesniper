@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useCallback } from "react"
+import { useState, useRef, useCallback, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -11,6 +11,10 @@ import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { Moon, Sun, Download, Play, Square, ExternalLink, Target, Heart, Star } from "lucide-react"
 import { useTheme } from "next-themes"
+
+// Source: google-10000-english (no swears), filtered to 3–8 char words on load
+const WORD_LIST_URL =
+  "https://raw.githubusercontent.com/first20hours/google-10000-english/master/google-10000-english-no-swears.txt"
 
 interface Config {
   names: number
@@ -23,6 +27,7 @@ interface Config {
     | "numbers_underline"
     | "letters_numbers_underline"
     | "numbers_letters"
+    | "dictionary"
   delay: number
   birthday: string
 }
@@ -49,87 +54,129 @@ export default function RbxNameSniper() {
   const [logs, setLogs] = useState<string[]>([])
   const abortControllerRef = useRef<AbortController | null>(null)
 
+  // ── Word list state ──────────────────────────────────────────────────────────
+  const [wordList, setWordList] = useState<string[]>([])
+  const [wordListStatus, setWordListStatus] = useState<"idle" | "loading" | "ready" | "error">("idle")
+
+  useEffect(() => {
+    setWordListStatus("loading")
+    fetch(WORD_LIST_URL)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.text()
+      })
+      .then((text) => {
+        const words = text
+          .split("\n")
+          .map((w) => w.trim().toLowerCase())
+          .filter((w) => w.length >= 3 && w.length <= 8 && /^[a-z]+$/.test(w))
+        setWordList(words)
+        setWordListStatus("ready")
+      })
+      .catch(() => setWordListStatus("error"))
+  }, [])
+
+  const generateDictionaryUsername = useCallback(
+    (length: number): string => {
+      if (wordList.length === 0) return "wordlist"
+
+      const pick = () => wordList[Math.floor(Math.random() * wordList.length)]
+
+      // Try up to 50 times to find a pair that fits within `length`
+      for (let i = 0; i < 50; i++) {
+        const combined = pick() + pick()
+        if (combined.length >= 3 && combined.length <= length) return combined
+      }
+
+      // Last resort: trim to length
+      return (pick() + pick()).slice(0, length)
+    },
+    [wordList],
+  )
+  // ────────────────────────────────────────────────────────────────────────────
+
   const addLog = useCallback((message: string, type: "info" | "success" | "error" = "info") => {
     const timestamp = new Date().toLocaleTimeString()
     const prefix = type === "success" ? "✓" : type === "error" ? "✗" : "•"
     setLogs((prev) => [...prev, `[${timestamp}] ${prefix} ${message}`])
   }, [])
 
-  const makeUsername = (config: Config): string => {
-    const { length, method } = config
+  const makeUsername = useCallback(
+    (config: Config): string => {
+      const { length, method } = config
 
-    if (method === "pronounceable") {
-      const vowels = "aeiou"
-      const consonants = "bcdfghjklmnpqrstvwxyz"
-      let username = ""
-      for (let i = 0; i < length; i++) {
-        if (i % 2 === 0) {
-          username += consonants[Math.floor(Math.random() * consonants.length)]
-        } else {
-          username += vowels[Math.floor(Math.random() * vowels.length)]
+      if (method === "dictionary") {
+        return generateDictionaryUsername(length)
+      } else if (method === "pronounceable") {
+        const vowels = "aeiou"
+        const consonants = "bcdfghjklmnpqrstvwxyz"
+        let username = ""
+        for (let i = 0; i < length; i++) {
+          if (i % 2 === 0) {
+            username += consonants[Math.floor(Math.random() * consonants.length)]
+          } else {
+            username += vowels[Math.floor(Math.random() * vowels.length)]
+          }
         }
-      }
-      return username
-    } else if (method === "letters_only") {
-      const letters = "abcdefghijklmnopqrstuvwxyz"
-      return Array.from({ length }, () => letters[Math.floor(Math.random() * letters.length)]).join("")
-    } else if (method === "letters_underline") {
-      if (length < 3) {
+        return username
+      } else if (method === "letters_only") {
         const letters = "abcdefghijklmnopqrstuvwxyz"
         return Array.from({ length }, () => letters[Math.floor(Math.random() * letters.length)]).join("")
-      }
-      const letters = "abcdefghijklmnopqrstuvwxyz"
-      let username = ""
-      for (let i = 0; i < length; i++) {
-        username += letters[Math.floor(Math.random() * letters.length)]
-      }
-      const underscorePosition = Math.floor(Math.random() * (length - 2)) + 1
-      username = username.slice(0, underscorePosition) + "_" + username.slice(underscorePosition)
-      return username
-    } else if (method === "numbers_underline") {
-      if (length < 3) {
+      } else if (method === "letters_underline") {
+        if (length < 3) {
+          const letters = "abcdefghijklmnopqrstuvwxyz"
+          return Array.from({ length }, () => letters[Math.floor(Math.random() * letters.length)]).join("")
+        }
+        const letters = "abcdefghijklmnopqrstuvwxyz"
+        let username = ""
+        for (let i = 0; i < length; i++) {
+          username += letters[Math.floor(Math.random() * letters.length)]
+        }
+        const underscorePosition = Math.floor(Math.random() * (length - 2)) + 1
+        username = username.slice(0, underscorePosition) + "_" + username.slice(underscorePosition)
+        return username
+      } else if (method === "numbers_underline") {
+        if (length < 3) {
+          const numbers = "0123456789"
+          return Array.from({ length }, () => numbers[Math.floor(Math.random() * numbers.length)]).join("")
+        }
         const numbers = "0123456789"
-        return Array.from({ length }, () => numbers[Math.floor(Math.random() * numbers.length)]).join("")
-      }
-      const numbers = "0123456789"
-      let username = ""
-      for (let i = 0; i < length; i++) {
-        username += numbers[Math.floor(Math.random() * numbers.length)]
-      }
-      const underscorePosition = Math.floor(Math.random() * (length - 2)) + 1
-      username = username.slice(0, underscorePosition) + "_" + username.slice(underscorePosition)
-      return username
-    } else if (method === "letters_numbers_underline") {
-      if (length < 3) {
+        let username = ""
+        for (let i = 0; i < length; i++) {
+          username += numbers[Math.floor(Math.random() * numbers.length)]
+        }
+        const underscorePosition = Math.floor(Math.random() * (length - 2)) + 1
+        username = username.slice(0, underscorePosition) + "_" + username.slice(underscorePosition)
+        return username
+      } else if (method === "letters_numbers_underline") {
+        if (length < 3) {
+          const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+          return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join("")
+        }
+        const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+        let username = ""
+        for (let i = 0; i < length; i++) {
+          username += chars[Math.floor(Math.random() * chars.length)]
+        }
+        const underscorePosition = Math.floor(Math.random() * (length - 2)) + 1
+        username = username.slice(0, underscorePosition) + "_" + username.slice(underscorePosition)
+        return username
+      } else if (method === "numbers_letters") {
+        const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+        return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join("")
+      } else {
         const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
         return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join("")
       }
-      const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
-      let username = ""
-      for (let i = 0; i < length; i++) {
-        username += chars[Math.floor(Math.random() * chars.length)]
-      }
-      const underscorePosition = Math.floor(Math.random() * (length - 2)) + 1
-      username = username.slice(0, underscorePosition) + "_" + username.slice(underscorePosition)
-      return username
-    } else if (method === "numbers_letters") {
-      const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
-      return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join("")
-    } else {
-      const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
-      return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join("")
-    }
-  }
+    },
+    [generateDictionaryUsername],
+  )
 
   const checkUsername = async (username: string, config: Config, signal: AbortSignal): Promise<number | null> => {
     try {
-      const url = `/api/validate?username=${encodeURIComponent(
-        username,
-      )}&birthday=${encodeURIComponent(config.birthday)}`
+      const url = `/api/validate?username=${encodeURIComponent(username)}&birthday=${encodeURIComponent(config.birthday)}`
       const response = await fetch(url, { signal })
-
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
-
       const data = await response.json()
       return data.code
     } catch (error: any) {
@@ -140,6 +187,11 @@ export default function RbxNameSniper() {
   }
 
   const startGeneration = async () => {
+    if (config.method === "dictionary" && wordListStatus !== "ready") {
+      addLog("Word list is not ready yet. Please wait.", "error")
+      return
+    }
+
     setIsRunning(true)
     setResults([])
     setLogs([])
@@ -150,6 +202,9 @@ export default function RbxNameSniper() {
 
     addLog(`Starting generation with ${config.names} target usernames`, "info")
     addLog(`Username length: ${config.length}, Method: ${config.method}`, "info")
+    if (config.method === "dictionary") {
+      addLog(`Word list loaded: ${wordList.length.toLocaleString()} words`, "info")
+    }
 
     let found = 0
     let attempts = 0
@@ -164,32 +219,19 @@ export default function RbxNameSniper() {
 
           if (code === 0) {
             found++
-            const result: UsernameResult = {
-              username,
-              status: "valid",
-              timestamp: new Date(),
-            }
-            setResults((prev) => [...prev, result])
+            setResults((prev) => [...prev, { username, status: "valid", timestamp: new Date() }])
             addLog(`[${found}/${config.names}] ✓ Found: ${username}`, "success")
           } else if (code !== null) {
-            const result: UsernameResult = {
-              username,
-              status: "taken",
-              timestamp: new Date(),
-            }
-            setResults((prev) => [...prev, result])
+            setResults((prev) => [...prev, { username, status: "taken", timestamp: new Date() }])
             addLog(`✗ ${username} is taken`, "error")
           } else {
             addLog(`⚠ Error checking ${username}`, "error")
           }
 
           setProgress((found / config.names) * 100)
-
           await new Promise((resolve) => setTimeout(resolve, config.delay * 1000))
         } catch (error: any) {
-          if (error.name === "AbortError") {
-            break
-          }
+          if (error.name === "AbortError") break
           addLog(`Error with ${username}: ${error.message}`, "error")
         }
       }
@@ -211,8 +253,7 @@ export default function RbxNameSniper() {
 
   const downloadResults = () => {
     const validUsernames = results.filter((r) => r.status === "valid").map((r) => r.username)
-    const content = validUsernames.join("\n")
-    const blob = new Blob([content], { type: "text/plain" })
+    const blob = new Blob([validUsernames.join("\n")], { type: "text/plain" })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
@@ -224,6 +265,7 @@ export default function RbxNameSniper() {
   }
 
   const validCount = results.filter((r) => r.status === "valid").length
+  const isDictionarySelected = config.method === "dictionary"
 
   return (
     <div className="min-h-screen bg-background">
@@ -298,8 +340,30 @@ export default function RbxNameSniper() {
                     <SelectItem value="numbers_underline">Numbers + underline</SelectItem>
                     <SelectItem value="letters_numbers_underline">Letters + numbers + underline</SelectItem>
                     <SelectItem value="numbers_letters">Numbers + letters</SelectItem>
+                    <SelectItem value="dictionary" disabled={wordListStatus === "error"}>
+                      Dictionary words
+                      {wordListStatus === "loading"
+                        ? " (loading…)"
+                        : wordListStatus === "error"
+                        ? " (unavailable)"
+                        : ""}
+                    </SelectItem>
                   </SelectContent>
                 </Select>
+
+                {/* Status hint shown only when dictionary is selected */}
+                {isDictionarySelected && wordListStatus === "loading" && (
+                  <p className="text-xs text-muted-foreground">Fetching word list, please wait…</p>
+                )}
+                {isDictionarySelected && wordListStatus === "ready" && (
+                  <p className="text-xs text-muted-foreground">
+                    {wordList.length.toLocaleString()} words loaded — generates combos like{" "}
+                    <span className="font-mono">frostblade</span>, <span className="font-mono">skyecho</span>
+                  </p>
+                )}
+                {isDictionarySelected && wordListStatus === "error" && (
+                  <p className="text-xs text-destructive">Failed to load word list. Check your connection.</p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -328,7 +392,11 @@ export default function RbxNameSniper() {
 
               <div className="flex gap-2">
                 {!isRunning ? (
-                  <Button onClick={startGeneration} className="flex-1">
+                  <Button
+                    onClick={startGeneration}
+                    className="flex-1"
+                    disabled={isDictionarySelected && wordListStatus !== "ready"}
+                  >
                     <Play className="h-4 w-4 mr-2" />
                     Start Generation
                   </Button>
